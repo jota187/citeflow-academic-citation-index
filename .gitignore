@@ -21,4 +21,4 @@ data/
 .idea/
 .vscode/
 
-.json
+*.json
