@@ -1,0 +1,22 @@
+# Ambiente virtual
+.venv/
+env/
+venv/
+
+# Ficheiros Python compilados
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Configuração e segredos
+.env
+*.env
+
+# Base de dados e dados locais
+data/
+*.db
+
+# Diversos
+.DS_Store
+.idea/
+.vscode/
