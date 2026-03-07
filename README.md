@@ -15,3 +15,10 @@ CiteFlow é uma ferramenta pessoal que lê alertas de citação do Google Schola
 - [ ] Fase 1 – Motor de recolha (Gmail → Semantic Scholar → SQLite)
 - [ ] Fase 2 – Dashboard Streamlit
 - [ ] Fase 3 – Polimento (config, logging, testes)
+
+
+
+
+executar projeto: python -m citeflow.db
+
+instalamos: pip install beautifulsoup4
