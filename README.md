@@ -21,4 +21,8 @@ CiteFlow é uma ferramenta pessoal que lê alertas de citação do Google Schola
 
 executar projeto: python -m citeflow.db
 
+del data\citeflow.db
+python -m citeflow.db
+python -m citeflow.main
+
 instalamos: pip install beautifulsoup4
