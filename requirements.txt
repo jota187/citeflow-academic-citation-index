@@ -5,3 +5,4 @@ semanticscholar
 streamlit
 python-dotenv
 beautifulsoup4
+pandas
