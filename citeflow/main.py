@@ -1,125 +1,112 @@
-from __future__ import annotations
 import base64
-import sqlite3
-from datetime import datetime
-from pathlib import Path
-
 from citeflow.gmail_client import get_gmail_service, search_messages, get_message
 from citeflow.scholar_parser import parse_scholar_alert_html
-from citeflow.db import get_connection, init_db
+from citeflow.db import init_db, get_connection
 
+def get_html(payload):
+    data = payload.get('body', {}).get('data', '')
+    if data and payload.get('mimeType') == 'text/html':
+        return base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+    for part in payload.get('parts', []):
+        result = get_html(part)
+        if result:
+            return result
+    return None
 
-def get_html_from_message(msg: dict) -> str | None:
-    """Extrai o HTML do corpo de um email da Gmail API."""
-    def _extract(payload):
-        data = payload.get("body", {}).get("data", "")
-        if data and payload.get("mimeType") == "text/html":
-            return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
-        for part in payload.get("parts", []):
-            result = _extract(part)
-            if result:
-                return result
-        return None
-    return _extract(msg.get("payload", {}))
-
-
-def is_already_processed(conn: sqlite3.Connection, email_message_id: str) -> bool:
-    """Verifica se este email já foi processado antes."""
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id FROM citations WHERE email_message_id = ?",
-        (email_message_id,)
-    )
-    return cur.fetchone() is not None
-
-
-def save_citation(conn: sqlite3.Connection, data: dict, email_message_id: str, email_date: str):
-    """Guarda uma citação na base de dados."""
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT OR IGNORE INTO citations (
-            platform,
-            my_work_title,
-            citing_title,
-            citing_authors,
-            citing_venue,
-            citing_snippet,
-            citing_url,
-            email_message_id,
-            email_date,
-            created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        data.get("platform"),
-        data.get("my_work_title"),
-        data.get("citing_title"),
-        data.get("citing_authors"),
-        data.get("citing_venue"),
-        data.get("citing_snippet"),
-        data.get("citing_url"),
-        email_message_id,
-        email_date,
-        datetime.now().isoformat(),
-    ))
-    conn.commit()
-
-
-def run(max_emails: int = 50):
-    """
-    Pipeline principal do CiteFlow:
-    Gmail → Parser → SQLite
-    """
-    print("=== CiteFlow: Academic Citation Index ===")
-    print(f"A iniciar pipeline... (max {max_emails} emails)")
-
-    # 1. Inicializar base de dados
+def run():
     init_db()
-    conn = get_connection()
 
-    # 2. Ligar ao Gmail
+    # ── Perguntar quantos emails processar ───────────────────────────────
+    resposta = input(
+        "\nQuantos emails de citações quer processar? "
+        "(número, ex: 100) ou Enter para TODOS: "
+    ).strip()
+
+    if resposta == "":
+        max_emails = None
+        print("→ A processar TODOS os emails disponíveis...")
+    elif resposta.isdigit() and int(resposta) > 0:
+        max_emails = int(resposta)
+        print(f"→ A processar os {max_emails} emails mais recentes...")
+    else:
+        print("Valor inválido. A usar 100 por defeito.")
+        max_emails = 100
+
+    print("\n=== CiteFlow: Academic Citation Index ===")
+    print(f"A iniciar pipeline...")
+
     service = get_gmail_service()
-    query = "from:(scholaralerts-noreply@google.com)"
-    messages = search_messages(service, query=query, max_results=max_emails)
-    print(f"Emails encontrados: {len(messages)}")
+    msgs = search_messages(
+        service,
+        query='from:(scholaralerts-noreply@google.com)',
+        max_results=max_emails if max_emails else 500
+    )
 
-    # 3. Processar cada email
+    if not msgs:
+        print("Nenhum email encontrado.")
+        return
+
+    # Normalizar: pode ser lista ou dict
+    if isinstance(msgs, dict):
+        msgs = [msgs]
+
+    print(f"Emails encontrados: {len(msgs)}")
+
     novos = 0
     ignorados = 0
 
-    for msg_ref in messages:
-        email_id = msg_ref["id"]
+    conn = get_connection()
+    cur = conn.cursor()
 
-        # Verificar se já foi processado
-        if is_already_processed(conn, email_id):
-            ignorados += 1
-            continue
-
-        # Ir buscar o email completo
-        msg = get_message(service, email_id)
-        email_date = str(msg.get("internalDate", ""))
-
-        # Extrair HTML
-        html = get_html_from_message(msg)
+    for msg_ref in msgs:
+        msg_id = msg_ref.get('id') if isinstance(msg_ref, dict) else msg_ref
+        msg = get_message(service, msg_id)
+        html = get_html(msg.get('payload', {}))
         if not html:
-            print(f"  [AVISO] Email {email_id} sem HTML — ignorado.")
             continue
 
-        # Fazer parsing
-        data = parse_scholar_alert_html(html)
+        result = parse_scholar_alert_html(html)
+        if not result or not result.get('citing_title'):
+            continue
 
-        # Guardar na base de dados
-        save_citation(conn, data, email_id, email_date)
-        novos += 1
-        print(f"  [OK] {data.get('citing_title', 'sem título')[:60]}...")
+        email_message_id = msg.get('id', '')
+        subject = msg.get('payload', {}).get('headers', [])
+        subject = next((h['value'] for h in subject if h['name'] == 'Subject'), '')
+        date_hdr = msg.get('payload', {}).get('headers', [])
+        date_hdr = next((h['value'] for h in date_hdr if h['name'] == 'Date'), '')
+
+        try:
+            cur.execute("""
+                INSERT INTO citations (
+                    platform, my_work_title, citing_title,
+                    citing_authors, citing_venue, citing_snippet,
+                    email_message_id, email_date,
+                    raw_email_subject, raw_email_snippet
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                result.get('platform', 'scholar'),
+                result.get('my_work_title', ''),
+                result.get('citing_title', ''),
+                result.get('citing_authors', ''),
+                result.get('citing_venue', ''),
+                result.get('citing_snippet', ''),
+                email_message_id,
+                date_hdr,
+                subject,
+                result.get('citing_snippet', '')[:200],
+            ))
+            conn.commit()
+            print(f"  [OK] {result.get('citing_title', '')[:60]}...")
+            novos += 1
+        except Exception:
+            ignorados += 1
 
     conn.close()
 
-    print()
-    print(f"=== Concluído ===")
+    print(f"\n=== Concluído ===")
     print(f"  Novos registos: {novos}")
     print(f"  Já existentes (ignorados): {ignorados}")
     print(f"  Total processados: {novos + ignorados}")
-
 
 if __name__ == "__main__":
     run()
