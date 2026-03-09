@@ -75,31 +75,37 @@ def run():
         date_hdr = msg.get('payload', {}).get('headers', [])
         date_hdr = next((h['value'] for h in date_hdr if h['name'] == 'Date'), '')
 
-        try:
-            cur.execute("""
-                INSERT INTO citations (
-                    platform, my_work_title, citing_title,
-                    citing_authors, citing_venue, citing_snippet,
-                    email_message_id, email_date,
-                    raw_email_subject, raw_email_snippet
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                result.get('platform', 'scholar'),
-                result.get('my_work_title', ''),
-                result.get('citing_title', ''),
-                result.get('citing_authors', ''),
-                result.get('citing_venue', ''),
-                result.get('citing_snippet', ''),
-                email_message_id,
-                date_hdr,
-                subject,
-                result.get('citing_snippet', '')[:200],
-            ))
-            conn.commit()
-            print(f"  [OK] {result.get('citing_title', '')[:60]}...")
-            novos += 1
-        except Exception:
+        cur.execute(
+            "SELECT id FROM citations WHERE email_message_id = ?",
+            (email_message_id,)
+        )
+        if cur.fetchone():
             ignorados += 1
+            continue
+
+        cur.execute("""
+            INSERT INTO citations (
+                platform, my_work_title, citing_title,
+                citing_authors, citing_venue, citing_snippet,
+                email_message_id, email_date,
+                raw_email_subject, raw_email_snippet
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            result.get('platform', 'scholar'),
+            result.get('my_work_title', ''),
+            result.get('citing_title', ''),
+            result.get('citing_authors', ''),
+            result.get('citing_venue', ''),
+            result.get('citing_snippet', ''),
+            email_message_id,
+            date_hdr,
+            subject,
+            result.get('citing_snippet', '')[:200],
+        ))
+        conn.commit()
+        print(f"  [OK] {result.get('citing_title', '')[:60]}...")
+        novos += 1
+
 
     conn.close()
 

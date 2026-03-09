@@ -1,5 +1,5 @@
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = PROJECT_ROOT / "data" / "citeflow.db"
@@ -24,7 +24,9 @@ def init_db():
         citing_url TEXT,
         email_message_id TEXT UNIQUE,
         email_date TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        raw_email_subject TEXT,
+        raw_email_snippet TEXT
     );
     """
     conn = get_connection()
