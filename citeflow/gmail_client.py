@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -52,7 +52,11 @@ def get_gmail_service():
     return service
 
 
-def search_messages(service, query: str, max_results: int = 50) -> List[Dict[str, Any]]:
+def search_messages(
+    service,
+    query: str,
+    max_results: Optional[int] = None
+) -> List[Dict[str, Any]]:
     """
     Procura mensagens no Gmail usando a mesma sintaxe da caixa de pesquisa do Gmail.
 
@@ -62,11 +66,34 @@ def search_messages(service, query: str, max_results: int = 50) -> List[Dict[str
 
     Devolve uma lista de dicionários simples com 'id' e 'threadId'.
     """
-    response = service.users().messages().list(
-        userId="me", q=query, maxResults=max_results
-    ).execute()
+    messages: List[Dict[str, Any]] = []
+    page_token = None
+    remaining = max_results
 
-    messages = response.get("messages", [])
+    while True:
+        page_size = 500 if remaining is None else min(500, remaining)
+        if page_size <= 0:
+            break
+
+        response = service.users().messages().list(
+            userId="me",
+            q=query,
+            maxResults=page_size,
+            pageToken=page_token
+        ).execute()
+
+        batch = response.get("messages", [])
+        messages.extend(batch)
+
+        if remaining is not None:
+            remaining -= len(batch)
+            if remaining <= 0:
+                break
+
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+
     return messages
 
 
