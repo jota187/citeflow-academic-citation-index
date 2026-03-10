@@ -12,14 +12,11 @@ CiteFlow é uma ferramenta pessoal que lê alertas de citação do Google Schola
 
 ## Estado do projeto
 
-- [ ] Fase 1 – Motor de recolha (Gmail → Semantic Scholar → SQLite)
-- [ ] Fase 2 – Dashboard Streamlit
-- [ ] Fase 3 – Polimento (config, logging, testes)
+- Fase 1 – Motor de recolha (Gmail → Semantic Scholar → SQLite)
+- Fase 2 – Dashboard Streamlit
+- Fase 3 – Polimento (config, logging, testes)
 
-
-
-
-executar projeto:
+## Executar projeto:
 
 .venv\Scripts\activate --------------> ativar ambiente virtual
 pip install -r requirements.txt -----> instalar requirnments
