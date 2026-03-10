@@ -2,6 +2,7 @@
 from pathlib import Path
 import sqlite3
 
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = PROJECT_ROOT / "data" / "citeflow.db"
 
@@ -23,6 +24,8 @@ def init_db():
             citing_url        TEXT,
             email_date        TEXT,
             raw_email_subject TEXT,
+            email_message_id  TEXT,
+            raw_email_snippet TEXT,
 
             -- Campos enriquecidos pela Semantic Scholar
             ss_doi            TEXT,
@@ -37,6 +40,8 @@ def init_db():
     # Adicionar colunas novas se a BD já existia sem elas
     existing = {row[1] for row in c.execute("PRAGMA table_info(citations)")}
     new_columns = {
+        "email_message_id":  "TEXT",
+        "raw_email_snippet": "TEXT",
         "ss_doi":            "TEXT",
         "ss_year":           "INTEGER",
         "ss_venue":          "TEXT",

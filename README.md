@@ -19,10 +19,17 @@ CiteFlow é uma ferramenta pessoal que lê alertas de citação do Google Schola
 
 
 
-executar projeto: python -m citeflow.db
+executar projeto:
 
-del data\citeflow.db
-python -m citeflow.db
-python -m citeflow.main
+.venv\Scripts\activate --------------> ativar ambiente virtual
+pip install -r requirements.txt -----> instalar requirnments
+deactivate --------------------------> desativar ambiente virtual
 
-instalamos: pip install beautifulsoup4
+-------------------------------------> qd o projeto estiver concluido não é necessário executar
+del data\citeflow.db ----------------> apaga base de dados
+python -m citeflow.db ---------------> cria base de dados
+
+
+python -m citeflow.main -------------------->  importar emails novos
+python -m citeflow.enrich ------------------> enriquecer (opcional, é lento)
+streamlit run dashboard/app.py -> ---------->ver o dashboard
