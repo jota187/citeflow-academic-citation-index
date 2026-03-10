@@ -133,7 +133,7 @@ elif modo == "🏆 Artigos meus mais citados":
     st.dataframe(contagem, use_container_width=True)
     export_buttons(contagem, filename_base="citeflow_top_artigos")
     st.divider()
-    st.caption(f"CiteFlow v1.2 · {len(df)} citações totais · Gmail API + Semantic Scholar")
+    st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
     st.stop()
 
 elif modo == "📐 H-Index":
@@ -180,7 +180,21 @@ elif modo == "📐 H-Index":
     )
 
     st.divider()
-    st.caption(f"CiteFlow v1.2 · {len(df)} citações totais · Gmail API + Semantic Scholar")
+
+    # ── MELHORIA 1: H-Index por ano ───────────────────────────────────────────
+    st.subheader("📅 Evolução do H-Index por ano")
+    anos_disponiveis = sorted(df["year"].dropna().unique().astype(int))
+    hindex_por_ano = []
+    for ano in anos_disponiveis:
+        df_ate_ano = df[df["year"] <= ano]
+        h, _ = calcular_hindex(df_ate_ano)
+        hindex_por_ano.append({"Ano": ano, "H-Index acumulado": h})
+    df_hindex_anos = pd.DataFrame(hindex_por_ano).set_index("Ano")
+    st.line_chart(df_hindex_anos)
+    st.caption("H-Index calculado com todas as citações até cada ano (valor acumulado).")
+
+    st.divider()
+    st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
     st.stop()
 
 elif modo == "🔬 Dados Semantic Scholar":
@@ -268,7 +282,7 @@ elif modo == "🔬 Dados Semantic Scholar":
                 st.info("Sem dados de venue disponíveis.")
 
     st.divider()
-    st.caption(f"CiteFlow v1.2 · {len(df)} citações totais · Gmail API + Semantic Scholar")
+    st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
     st.stop()
 
 
@@ -290,9 +304,60 @@ artigo_sel = st.selectbox("Filtrar por artigo meu:", artigos)
 if artigo_sel != "(todos)":
     df_filtered = df_filtered[df_filtered["my_work_title"] == artigo_sel]
 
+# ── MELHORIA 3: Pesquisa livre ────────────────────────────────────────────────
+pesquisa = st.text_input("🔍 Pesquisa livre (título, autor, venue...)", value="")
+if pesquisa.strip():
+    mask = df_filtered.apply(
+        lambda row: row.astype(str).str.contains(pesquisa, case=False, na=False).any(),
+        axis=1,
+    )
+    df_filtered = df_filtered[mask]
+
 st.subheader(f"📋 Citações ({len(df_filtered)} registos)")
 
 df_tabela_main = make_doi_clickable(df_filtered)
 colunas_mostrar = ["my_work_title", "citing_title", "citing_authors", "citing_venue", "email_date", "ss_citation_count", "ss_doi"]
 colunas_existentes = [c for c in colunas_mostrar if c in df_tabela_main.columns]
+
+col_config_main = {}
+if "ss_doi" in colunas_existentes:
+    col_config_main["ss_doi"] = st.column_config.LinkColumn(
+        "DOI",
+        help="Clica para abrir o artigo",
+        display_text="🔗 Abrir",
+    )
+if "ss_citation_count" in colunas_existentes:
+    col_config_main["ss_citation_count"] = st.column_config.NumberColumn(
+        "Citações (SS)",
+        help="Citações do artigo citante na Semantic Scholar",
+        format="%d",
+    )
+
+df_para_tabela = df_tabela_main[colunas_existentes].sort_values("email_date", ascending=False)
+
+st.dataframe(df_para_tabela, use_container_width=True, column_config=col_config_main)
+export_buttons(df_para_tabela, filename_base="citeflow_citacoes")
+
+st.divider()
+
+# ── Gráfico por ano ───────────────────────────────────────────────────────────
+st.subheader("📅 Citações por ano")
+por_ano = df_filtered.groupby("year", dropna=True).size().reset_index(name="Citações").sort_values("year")
+por_ano["year"] = por_ano["year"].astype(str)
+st.bar_chart(por_ano.set_index("year"))
+
+# ── MELHORIA 2: Citações acumuladas ──────────────────────────────────────────
+st.subheader("📈 Citações acumuladas ao longo do tempo")
+acumuladas = (
+    df_filtered.groupby("year", dropna=True)
+    .size()
+    .reset_index(name="Novas")
+    .sort_values("year")
+)
+acumuladas["Acumuladas"] = acumuladas["Novas"].cumsum()
+acumuladas["year"] = acumuladas["year"].astype(str)
+st.line_chart(acumuladas.set_index("year")["Acumuladas"])
+
+st.divider()
+st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
 
