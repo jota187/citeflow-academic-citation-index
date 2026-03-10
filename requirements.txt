@@ -6,3 +6,4 @@ streamlit
 python-dotenv
 beautifulsoup4
 pandas
+openpyxl
