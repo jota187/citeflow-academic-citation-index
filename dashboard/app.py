@@ -1,3 +1,4 @@
+import io
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -15,28 +16,7 @@ def load_data():
     return df
 
 
-st.set_page_config(page_title="CiteFlow", page_icon="📚", layout="wide")
-st.title("📚 CiteFlow: Academic Citation Index")
-st.caption("Dashboard de citações académicas — Google Scholar + Semantic Scholar")
-
-
-df = load_data()
-
-
-if df.empty:
-    st.warning("Base de dados vazia. Corre primeiro: python -m citeflow.main")
-    st.stop()
-
-
-# ── Converter datas e extrair ano ─────────────────────────────────────────────
-df["email_date"] = pd.to_datetime(df["email_date"], errors="coerce", utc=True)
-df["email_date"] = df["email_date"].dt.tz_convert(None)
-df["year"] = df["email_date"].dt.year
-
-
-# ── Helper: tornar DOI clicável ───────────────────────────────────────────────
 def make_doi_clickable(df_in):
-    """Converte coluna ss_doi em URL completo para usar com column_config."""
     if "ss_doi" in df_in.columns:
         df_in = df_in.copy()
         df_in["ss_doi"] = df_in["ss_doi"].apply(
@@ -45,11 +25,44 @@ def make_doi_clickable(df_in):
     return df_in
 
 
-# ════════════════════════════════════════════════════════════════════════════════
-# PAINEL LATERAL
-# ════════════════════════════════════════════════════════════════════════════════
-st.sidebar.header("🔎 Modo de visualização")
+def export_buttons(df_export: pd.DataFrame, filename_base: str):
+    col_csv, col_xlsx, _ = st.columns([1, 1, 4])
+    csv_data = df_export.to_csv(index=False).encode("utf-8")
+    col_csv.download_button(
+        label="⬇️ CSV",
+        data=csv_data,
+        file_name=f"{filename_base}.csv",
+        mime="text/csv",
+        help="Descarregar em formato CSV (compatível com Excel, Google Sheets, etc.)",
+    )
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="CiteFlow")
+    excel_data = buffer.getvalue()
+    col_xlsx.download_button(
+        label="⬇️ Excel",
+        data=excel_data,
+        file_name=f"{filename_base}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        help="Descarregar em formato Excel (.xlsx)",
+    )
 
+
+st.set_page_config(page_title="CiteFlow", page_icon="📚", layout="wide")
+st.title("📚 CiteFlow: Academic Citation Index")
+st.caption("Dashboard de citações académicas — Google Scholar + Semantic Scholar")
+
+df = load_data()
+
+if df.empty:
+    st.warning("Base de dados vazia. Corre primeiro: python -m citeflow.main")
+    st.stop()
+
+df["email_date"] = pd.to_datetime(df["email_date"], errors="coerce", utc=True)
+df["email_date"] = df["email_date"].dt.tz_convert(None)
+df["year"] = df["email_date"].dt.year
+
+st.sidebar.header("🔎 Modo de visualização")
 
 modo = st.sidebar.radio(
     "O que pretendes ver?",
@@ -63,22 +76,18 @@ modo = st.sidebar.radio(
     ],
 )
 
-
 df_filtered = df.copy()
-
 
 if modo == "🕐 N citações mais recentes":
     st.sidebar.markdown("---")
     n = st.sidebar.number_input("Número de citações:", min_value=1, max_value=len(df), value=min(50, len(df)), step=10)
     df_filtered = df.sort_values("email_date", ascending=False).head(int(n))
 
-
 elif modo == "📅 Citações de um ano específico":
     st.sidebar.markdown("---")
     anos = sorted(df["year"].dropna().unique().astype(int), reverse=True)
     ano = st.sidebar.selectbox("Escolhe o ano:", anos)
     df_filtered = df[df["year"] == ano]
-
 
 elif modo == "📆 Citações num período de anos":
     st.sidebar.markdown("---")
@@ -89,7 +98,6 @@ elif modo == "📆 Citações num período de anos":
         st.sidebar.error("⚠️ O ano inicial não pode ser maior que o ano final.")
         st.stop()
     df_filtered = df[(df["year"] >= ano_ini) & (df["year"] <= ano_fim)]
-
 
 elif modo == "🏆 Artigos meus mais citados":
     st.sidebar.markdown("---")
@@ -102,16 +110,15 @@ elif modo == "🏆 Artigos meus mais citados":
     col2.metric("Artigos meus com citações", df["my_work_title"].nunique())
     st.bar_chart(contagem.set_index("Artigo"))
     st.dataframe(contagem, use_container_width=True)
+    export_buttons(contagem, filename_base="citeflow_top_artigos")
     st.divider()
     st.caption(f"CiteFlow v1.2 · {len(df)} citações totais · Gmail API + Semantic Scholar")
     st.stop()
-
 
 elif modo == "🔬 Dados Semantic Scholar":
     st.sidebar.markdown("---")
     st.subheader("🔬 Enriquecimento Semantic Scholar")
 
-    # ── Métricas de cobertura ─────────────────────────────────────────────────
     total = len(df)
     enriquecidos = int(df["ss_enriched"].sum()) if "ss_enriched" in df.columns else 0
     nao_enriquecidos = total - enriquecidos
@@ -123,12 +130,10 @@ elif modo == "🔬 Dados Semantic Scholar":
     col3.metric("Por enriquecer ⏳", nao_enriquecidos)
     col4.metric("Cobertura", f"{pct}%")
 
-    # Barra de progresso visual
     st.progress(pct / 100, text=f"{pct}% dos registos enriquecidos com dados da Semantic Scholar")
 
     st.divider()
 
-    # ── Tabela de registos enriquecidos ──────────────────────────────────────
     df_ss = df[df["ss_enriched"] == 1].copy() if "ss_enriched" in df.columns else pd.DataFrame()
 
     if df_ss.empty:
@@ -136,10 +141,8 @@ elif modo == "🔬 Dados Semantic Scholar":
     else:
         st.subheader(f"📋 Citações com dados enriquecidos ({len(df_ss)} registos)")
 
-        # Converter DOI em URL clicável
         df_ss = make_doi_clickable(df_ss)
 
-        # Seleccionar e renomear colunas
         colunas_ss = ["citing_title", "ss_venue", "ss_year", "ss_citation_count", "ss_doi", "my_work_title"]
         colunas_ex = [c for c in colunas_ss if c in df_ss.columns]
         df_tabela = df_ss[colunas_ex].rename(columns={
@@ -151,7 +154,6 @@ elif modo == "🔬 Dados Semantic Scholar":
             "my_work_title":     "Meu artigo citado",
         }).sort_values("Citações do artigo", ascending=False, na_position="last")
 
-        # Configuração das colunas — DOI clicável
         col_config = {}
         if "DOI" in df_tabela.columns:
             col_config["DOI"] = st.column_config.LinkColumn(
@@ -166,15 +168,11 @@ elif modo == "🔬 Dados Semantic Scholar":
                 format="%d",
             )
 
-        st.dataframe(
-            df_tabela,
-            use_container_width=True,
-            column_config=col_config,
-        )
+        st.dataframe(df_tabela, use_container_width=True, column_config=col_config)
+        export_buttons(df_tabela, filename_base="citeflow_semantic_scholar")
 
         st.divider()
 
-        # ── Gráfico: Top 20 artigos citantes com mais citações ────────────────
         st.subheader("📊 Top 20 artigos citantes com mais citações (SS)")
         if "ss_citation_count" in df_ss.columns:
             top20 = (
@@ -191,7 +189,6 @@ elif modo == "🔬 Dados Semantic Scholar":
 
         st.divider()
 
-        # ── Venues mais frequentes ────────────────────────────────────────────
         st.subheader("📰 Venues mais frequentes (SS)")
         if "ss_venue" in df_ss.columns:
             venues = (
@@ -213,10 +210,6 @@ elif modo == "🔬 Dados Semantic Scholar":
     st.stop()
 
 
-
-# ════════════════════════════════════════════════════════════════════════════════
-# MÉTRICAS GERAIS (modos: Todas, N recentes, por ano, por período)
-# ════════════════════════════════════════════════════════════════════════════════
 st.subheader("📊 Resumo")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Citações encontradas", len(df_filtered))
@@ -227,16 +220,12 @@ col4.metric("Enriquecidos (SS)", enriquecidos_filtro)
 
 st.divider()
 
-
-# ── Filtro adicional por artigo meu ──────────────────────────────────────────
 st.subheader("🔍 Filtro adicional")
 artigos = ["(todos)"] + sorted(df_filtered["my_work_title"].dropna().unique().tolist())
 artigo_sel = st.selectbox("Filtrar por artigo meu:", artigos)
 if artigo_sel != "(todos)":
     df_filtered = df_filtered[df_filtered["my_work_title"] == artigo_sel]
 
-
-# ── Tabela principal ──────────────────────────────────────────────────────────
 st.subheader(f"📋 Citações ({len(df_filtered)} registos)")
 
 df_tabela_main = make_doi_clickable(df_filtered)
@@ -257,21 +246,17 @@ if "ss_citation_count" in colunas_existentes:
         format="%d",
     )
 
-st.dataframe(
-    df_tabela_main[colunas_existentes].sort_values("email_date", ascending=False),
-    use_container_width=True,
-    column_config=col_config_main,
-)
+df_para_tabela = df_tabela_main[colunas_existentes].sort_values("email_date", ascending=False)
+
+st.dataframe(df_para_tabela, use_container_width=True, column_config=col_config_main)
+export_buttons(df_para_tabela, filename_base="citeflow_citacoes")
 
 st.divider()
 
-
-# ── Gráfico por ano ───────────────────────────────────────────────────────────
 st.subheader("📅 Citações por ano")
 por_ano = df_filtered.groupby("year", dropna=True).size().reset_index(name="Citações").sort_values("year")
 por_ano["year"] = por_ano["year"].astype(str)
 st.bar_chart(por_ano.set_index("year"))
-
 
 st.divider()
 st.caption(f"CiteFlow v1.2 · {len(df)} citações totais · Gmail API + Semantic Scholar")
