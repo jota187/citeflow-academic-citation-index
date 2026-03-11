@@ -93,6 +93,9 @@ def _download_db_from_github() -> bool:
 def load_data():
     if _is_db_stale(DB_PATH, REFRESH_INTERVAL_S):
         _download_db_from_github()
+    if not DB_PATH.exists():
+        st.error("Base de dados nao encontrada. Verifica se o artifact existe e se os secrets do GitHub estao configurados.")
+        return pd.DataFrame()
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM citations ORDER BY email_date DESC", conn)
     conn.close()
@@ -438,4 +441,3 @@ st.line_chart(acumuladas.set_index("year")["Acumuladas"])
 
 st.divider()
 st.caption(f"CiteFlow v1.3 · {len(df)} citacoes totais · Gmail API + Semantic Scholar")
-
