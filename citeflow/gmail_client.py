@@ -1,24 +1,47 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-# Escopo: só leitura do Gmail
+# Escopo: so leitura do Gmail
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CREDENTIALS_PATH = PROJECT_ROOT / "credentials.json"
-TOKEN_PATH = PROJECT_ROOT / "token.json"
+load_dotenv(PROJECT_ROOT / ".env")
+
+CREDENTIALS_PATH = Path(os.getenv("GOOGLE_CREDENTIALS_PATH", PROJECT_ROOT / "credentials.json"))
+TOKEN_PATH = Path(os.getenv("GOOGLE_TOKEN_PATH", PROJECT_ROOT / "token.json"))
+
+
+def _load_json_env(var_name: str) -> Optional[dict]:
+    raw = os.getenv(var_name, "").strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"[AVISO] {var_name} nao contem JSON valido.")
+        return None
+
+
+def _write_json_if_missing(path: Path, data: dict) -> None:
+    if path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
 
 
 def get_gmail_service():
     """
-    Cria (ou reutiliza) uma ligação autenticada à Gmail API.
+    Cria (ou reutiliza) uma ligacao autenticada a Gmail API.
 
     Na primeira vez:
       - abre o browser para autorizar o acesso
@@ -28,23 +51,32 @@ def get_gmail_service():
     """
     creds = None
 
-    # 1) Se já existe token.json, tenta reutilizar
-    if TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+    # 1) Token deve vir do .env
+    token_info = _load_json_env("GOOGLE_TOKEN_JSON")
+    if not token_info:
+        raise RuntimeError("GOOGLE_TOKEN_JSON em .env e obrigatorio.")
+    _write_json_if_missing(TOKEN_PATH, token_info)
+    creds = Credentials.from_authorized_user_info(token_info, SCOPES)
 
-    # 2) Se não há credenciais válidas, faz o fluxo OAuth
+    # 2) Se nao ha credenciais validas, faz o fluxo OAuth
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             # Renova automaticamente
             creds.refresh(Request())
         else:
-            # Fluxo de autorização no browser
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(CREDENTIALS_PATH), SCOPES
-            )
+            # Fluxo de autorizacao no browser
+            creds_info = _load_json_env("GOOGLE_CREDENTIALS_JSON")
+            if creds_info:
+                _write_json_if_missing(CREDENTIALS_PATH, creds_info)
+                flow = InstalledAppFlow.from_client_config(creds_info, SCOPES)
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    str(CREDENTIALS_PATH), SCOPES
+                )
             creds = flow.run_local_server(port=0)
 
         # Guarda o token para reutilizar depois
+        TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
         TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
 
     # 3) Constroi o cliente da Gmail API
@@ -64,7 +96,7 @@ def search_messages(
       - 'from:(scholaralerts-noreply@google.com)'
       - 'label:citeflow-citations is:unread'
 
-    Devolve uma lista de dicionários simples com 'id' e 'threadId'.
+    Devolve uma lista de dicionarios simples com 'id' e 'threadId'.
     """
     messages: List[Dict[str, Any]] = []
     page_token = None
@@ -99,7 +131,7 @@ def search_messages(
 
 def get_message(service, message_id: str) -> Dict[str, Any]:
     """
-    Vai buscar o conteúdo completo de uma mensagem pelo ID.
+    Vai buscar o conteudo completo de uma mensagem pelo ID.
     """
     message = service.users().messages().get(
         userId="me", id=message_id, format="full"
@@ -108,7 +140,7 @@ def get_message(service, message_id: str) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    # Pequeno teste manual: listar alguns emails que correspondam à query
+    # Pequeno teste manual: listar alguns emails que correspondam a query
     service = get_gmail_service()
     query = "from:(scholaralerts-noreply@google.com)"
     msgs = search_messages(service, query=query, max_results=5)
