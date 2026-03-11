@@ -76,11 +76,11 @@ def _download_db_from_github() -> bool:
         with zipfile.ZipFile(zip_path, "r") as zf:
             target = None
             for name in zf.namelist():
-                if name.endswith("data/citeflow.db"):
+                if name.endswith("data/citeflow.db") or name.endswith("citeflow.db"):
                     target = name
                     break
             if not target:
-                st.warning("Artifact nao contem data/citeflow.db.")
+                st.warning("Artifact nao contem citeflow.db.")
                 return False
             zf.extract(target, tmpdir)
             extracted = Path(tmpdir) / target

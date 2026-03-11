@@ -79,11 +79,11 @@ jobs:
           with zipfile.ZipFile(io.BytesIO(resp.content), "r") as zf:
               target = None
               for name in zf.namelist():
-                  if name.endswith("data/citeflow.db"):
+                  if name.endswith("data/citeflow.db") or name.endswith("citeflow.db"):
                       target = name
                       break
               if not target:
-                  print("Artifact does not contain data/citeflow.db")
+                  print("Artifact does not contain citeflow.db")
                   sys.exit(0)
               zf.extract(target, ".")
           print("Downloaded latest DB artifact.")
