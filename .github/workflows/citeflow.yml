@@ -33,16 +33,10 @@ jobs:
       - name: Prepare data directory
         run: mkdir -p data
 
-      - name: Write secrets to files
+      - name: Run pipeline
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
-        run: |
-          printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credentials.json
-          printf '%s' "$GOOGLE_TOKEN_JSON" > token.json
-
-      - name: Run pipeline
-        env:
           SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
           CROSSREF_MAILTO: ${{ secrets.CROSSREF_MAILTO }}
         run: |
