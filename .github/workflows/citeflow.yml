@@ -32,7 +32,7 @@ jobs:
       - name: Download latest DB artifact (if any)
         env:
           GITHUB_REPO: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           ARTIFACT_NAME: citeflow-db
         run: |
           python - <<'PY'
