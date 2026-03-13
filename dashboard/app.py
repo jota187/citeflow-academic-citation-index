@@ -1,4 +1,4 @@
-import io
+﻿import io
 import os
 import sqlite3
 import tempfile
@@ -111,8 +111,31 @@ def make_doi_clickable(df_in):
     return df_in
 
 
-def export_buttons(df_export: pd.DataFrame, filename_base: str):
-    col_csv, col_xlsx, _ = st.columns([1, 1, 4])
+def _non_empty_str_series(series: pd.Series) -> pd.Series:
+    return series.notna() & series.astype(str).str.strip().ne("")
+
+
+def _doi_mask(df_in: pd.DataFrame) -> pd.Series:
+    if "ss_doi" not in df_in.columns:
+        return pd.Series([False] * len(df_in), index=df_in.index)
+    return _non_empty_str_series(df_in["ss_doi"])
+
+
+def _semantic_mask(df_in: pd.DataFrame) -> pd.Series:
+    mask = pd.Series([False] * len(df_in), index=df_in.index)
+    if "ss_url" in df_in.columns:
+        mask |= _non_empty_str_series(df_in["ss_url"])
+    if "ss_venue" in df_in.columns:
+        mask |= _non_empty_str_series(df_in["ss_venue"])
+    if "ss_year" in df_in.columns:
+        mask |= df_in["ss_year"].notna()
+    if "ss_citation_count" in df_in.columns:
+        mask |= df_in["ss_citation_count"].notna()
+    return mask
+
+
+def export_buttons(df_export: pd.DataFrame, filename_base: str, container=st):
+    col_csv, col_xlsx = container.columns(2)
     csv_data = df_export.to_csv(index=False).encode("utf-8")
     col_csv.download_button(
         label="⬇️ CSV",
@@ -120,6 +143,7 @@ def export_buttons(df_export: pd.DataFrame, filename_base: str):
         file_name=f"{filename_base}.csv",
         mime="text/csv",
         help="Descarregar em formato CSV",
+        use_container_width=True,
     )
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -131,6 +155,7 @@ def export_buttons(df_export: pd.DataFrame, filename_base: str):
         file_name=f"{filename_base}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         help="Descarregar em formato Excel (.xlsx)",
+        use_container_width=True,
     )
 
 
@@ -138,14 +163,14 @@ def calcular_hindex(df: pd.DataFrame):
     contagem = (
         df.groupby("my_work_title")
         .size()
-        .reset_index(name="citacoes")
-        .sort_values("citacoes", ascending=False)
+        .reset_index(name="citações")
+        .sort_values("citações", ascending=False)
         .reset_index(drop=True)
     )
     contagem.index += 1
     h = 0
     for rank, row in contagem.iterrows():
-        if row["citacoes"] >= rank:
+        if row["citações"] >= rank:
             h = rank
         else:
             break
@@ -154,7 +179,7 @@ def calcular_hindex(df: pd.DataFrame):
 
 st.set_page_config(page_title="CiteFlow", page_icon="📚", layout="wide")
 st.title("📚 CiteFlow: Academic Citation Index")
-st.caption("Dashboard de citacoes academicas — Google Scholar + Semantic Scholar")
+st.caption("Dashboard de citações académicas — Google Scholar + CrossRef + Semantic Scholar")
 
 df = load_data()
 
@@ -171,32 +196,33 @@ hindex_global, tabela_hindex = calcular_hindex(df)
 st.sidebar.header("🔎 Modo de visualizacao")
 
 modo = st.sidebar.radio(
-    "O que pretendes ver?",
+    "Citações a consultar",
     [
-        "📋 Todas as citacoes",
-        "🕐 N citacoes mais recentes",
-        "📌 Citacoes de um ano especifico",
-        "📆 Citacoes num periodo de anos",
-        "🏆 Artigos meus mais citados",
+        "📋 Todas",
+        "🕐 Mais recentes",
+        "📌 Por ano",
+        "📆 Por período",
+        "🏆 Mais citados",
         "📐 H-Index",
+        "🔬 Dados CrossRef",
         "🔬 Dados Semantic Scholar",
     ],
 )
 
 df_filtered = df.copy()
 
-if modo == "🕐 N citacoes mais recentes":
+if modo == "🕐 Mais recentes":
     st.sidebar.markdown("---")
-    n = st.sidebar.number_input("Numero de citacoes:", min_value=1, max_value=len(df), value=min(50, len(df)), step=10)
+    n = st.sidebar.number_input("Número de citações:", min_value=1, max_value=len(df), value=min(50, len(df)), step=10)
     df_filtered = df.sort_values("email_date", ascending=False).head(int(n))
 
-elif modo == "📌 Citacoes de um ano especifico":
+elif modo == "📌 Por ano":
     st.sidebar.markdown("---")
     anos = sorted(df["year"].dropna().unique().astype(int), reverse=True)
     ano = st.sidebar.selectbox("Escolhe o ano:", anos)
     df_filtered = df[df["year"] == ano]
 
-elif modo == "📆 Citacoes num periodo de anos":
+elif modo == "📆 Por período":
     st.sidebar.markdown("---")
     anos = sorted(df["year"].dropna().unique().astype(int))
     ano_ini = st.sidebar.selectbox("De (ano):", anos, index=0)
@@ -206,20 +232,21 @@ elif modo == "📆 Citacoes num periodo de anos":
         st.stop()
     df_filtered = df[(df["year"] >= ano_ini) & (df["year"] <= ano_fim)]
 
-elif modo == "🏆 Artigos meus mais citados":
+elif modo == "🏆 Mais citados":
     st.sidebar.markdown("---")
     n_top = st.sidebar.number_input("Quantos artigos mostrar?", min_value=1, max_value=df["my_work_title"].nunique(), value=min(10, df["my_work_title"].nunique()), step=1)
     contagem = df["my_work_title"].value_counts().head(int(n_top)).reset_index()
-    contagem.columns = ["Artigo", "Citacoes"]
+    contagem.columns = ["Artigo", "Citações"]
     st.subheader(f"🏆 Top {int(n_top)} artigos meus mais citados")
     col1, col2 = st.columns(2)
-    col1.metric("Total de citacoes na BD", len(df))
-    col2.metric("Artigos meus com citacoes", df["my_work_title"].nunique())
+    col1.metric("Total de citações na BD", len(df))
+    col2.metric("Artigos meus com citações", df["my_work_title"].nunique())
     st.bar_chart(contagem.set_index("Artigo"))
     st.dataframe(contagem, use_container_width=True)
-    export_buttons(contagem, filename_base="citeflow_top_artigos")
+    st.sidebar.markdown("---")
+    export_buttons(contagem, filename_base="citeflow_top_artigos", container=st.sidebar)
     st.divider()
-    st.caption(f"CiteFlow v1.3 · {len(df)} citacoes totais · Gmail API + Semantic Scholar")
+    st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
     st.stop()
 
 elif modo == "📐 H-Index":
@@ -227,40 +254,41 @@ elif modo == "📐 H-Index":
 
     col1, col2, col3 = st.columns(3)
     col1.metric("H-Index (aproximado)", hindex_global,
-                help="Baseado nas citacoes registadas nesta base de dados")
-    col2.metric("Total de citacoes", len(df))
-    col3.metric("Artigos com citacoes", df["my_work_title"].nunique())
+                help="Baseado nas citações registadas nesta base de dados")
+    col2.metric("Total de citações", len(df))
+    col3.metric("Artigos com citações", df["my_work_title"].nunique())
 
     st.info(
         f"**Como interpretar:** tens **h-index ≈ {hindex_global}**, "
         f"o que significa que tens pelo menos **{hindex_global} artigos** "
-        f"com pelo menos **{hindex_global} citacoes** cada. "
-        "Valor aproximado — baseado apenas nas citacoes registadas nesta BD."
+        f"com pelo menos **{hindex_global} citações** cada. "
+        "Valor aproximado — baseado apenas nas citações registadas nesta BD."
     )
 
     st.divider()
 
-    st.subheader("📋 Citacoes por artigo")
+    st.subheader("📋 Citações por artigo")
     tabela_display = tabela_hindex.copy()
     tabela_display.index.name = "Rank"
-    tabela_display.columns = ["Artigo", "Citacoes na BD"]
+    tabela_display.columns = ["Artigo", "Citações na BD"]
     tabela_display["Conta para h-index?"] = tabela_display.apply(
-        lambda row: "✅ Sim" if row["Citacoes na BD"] >= row.name else "❌ Nao",
+        lambda row: "✅ Sim" if row["Citações na BD"] >= row.name else "❌ Nao",
         axis=1,
     )
     st.dataframe(tabela_display, use_container_width=True)
-    export_buttons(tabela_display.reset_index(), filename_base="citeflow_hindex")
+    st.sidebar.markdown("---")
+    export_buttons(tabela_display.reset_index(), filename_base="citeflow_hindex", container=st.sidebar)
 
     st.divider()
 
     st.subheader("📊 Grafico do H-Index")
     grafico = tabela_hindex.copy()
-    grafico.columns = ["Artigo", "Citacoes"]
+    grafico.columns = ["Artigo", "Citações"]
     grafico["Rank"] = grafico.index
     grafico["H-Index (linha)"] = hindex_global
-    st.line_chart(grafico.set_index("Rank")[["Citacoes", "H-Index (linha)"]])
+    st.line_chart(grafico.set_index("Rank")[["Citações", "H-Index (linha)"]])
     st.caption(
-        "Linha azul = citacoes por artigo (ordem decrescente). "
+        "Linha azul = citações por artigo (ordem decrescente). "
         "Linha laranja = valor do h-index. "
         "O cruzamento define o h-index."
     )
@@ -276,18 +304,71 @@ elif modo == "📐 H-Index":
         hindex_por_ano.append({"Ano": ano, "H-Index acumulado": h})
     df_hindex_anos = pd.DataFrame(hindex_por_ano).set_index("Ano")
     st.line_chart(df_hindex_anos)
-    st.caption("H-Index calculado com todas as citacoes ate cada ano (valor acumulado).")
+    st.caption("H-Index calculado com todas as citações ate cada ano (valor acumulado).")
 
     st.divider()
-    st.caption(f"CiteFlow v1.3 · {len(df)} citacoes totais · Gmail API + Semantic Scholar")
+    st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
+    st.stop()
+
+elif modo == "🔬 Dados CrossRef":
+    st.sidebar.markdown("---")
+    st.subheader("🔗 Enriquecimento CrossRef")
+    st.caption("Critério: registos com DOI identificado e sem dados da Semantic Scholar.")
+
+    total = len(df)
+    mask_semantic = _semantic_mask(df)
+    mask_crossref = _doi_mask(df) & ~mask_semantic
+    enriquecidos = int(mask_crossref.sum())
+    nao_enriquecidos = total - enriquecidos
+    pct = round(enriquecidos / total * 100, 1) if total > 0 else 0
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total de registos", total)
+    col2.metric("Enriquecidos ✅", enriquecidos)
+    col3.metric("Por enriquecer ⏳", nao_enriquecidos)
+    col4.metric("Cobertura", f"{pct}%")
+
+    st.progress(pct / 100, text=f"{pct}% dos registos enriquecidos com dados do CrossRef")
+    st.divider()
+
+    df_cr = df[mask_crossref].copy()
+
+    if df_cr.empty:
+        st.info("Ainda nao ha dados do CrossRef. Corre: python -m citeflow.enrich")
+    else:
+        st.subheader(f"📋 Citações com dados enriquecidos ({len(df_cr)} registos)")
+        df_cr = make_doi_clickable(df_cr)
+        colunas_ss = ["citing_title", "ss_doi", "my_work_title"]
+        colunas_ex = [c for c in colunas_ss if c in df_cr.columns]
+        df_tabela = df_cr[colunas_ex].rename(columns={
+            "citing_title":      "Artigo citante",
+            "ss_doi":            "DOI",
+            "my_work_title":     "Meu artigo citado",
+        })
+
+        col_config = {}
+        if "DOI" in df_tabela.columns:
+            col_config["DOI"] = st.column_config.LinkColumn(
+                "DOI", help="Clica para abrir o artigo", display_text="🔗 Abrir",
+            )
+
+        st.dataframe(df_tabela, use_container_width=True, column_config=col_config)
+        st.sidebar.markdown("---")
+        export_buttons(df_tabela, filename_base="citeflow_crossref", container=st.sidebar)
+        st.divider()
+
+    st.divider()
+    st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + CrossRef + Semantic Scholar")
     st.stop()
 
 elif modo == "🔬 Dados Semantic Scholar":
     st.sidebar.markdown("---")
     st.subheader("🔬 Enriquecimento Semantic Scholar")
+    st.caption("Critério: registos com pelo menos um campo da Semantic Scholar (URL, venue, ano ou citações).")
 
     total = len(df)
-    enriquecidos = int(df["ss_enriched"].sum()) if "ss_enriched" in df.columns else 0
+    mask_semantic = _semantic_mask(df)
+    enriquecidos = int(mask_semantic.sum())
     nao_enriquecidos = total - enriquecidos
     pct = round(enriquecidos / total * 100, 1) if total > 0 else 0
 
@@ -300,12 +381,12 @@ elif modo == "🔬 Dados Semantic Scholar":
     st.progress(pct / 100, text=f"{pct}% dos registos enriquecidos com dados da Semantic Scholar")
     st.divider()
 
-    df_ss = df[df["ss_enriched"] == 1].copy() if "ss_enriched" in df.columns else pd.DataFrame()
+    df_ss = df[mask_semantic].copy()
 
     if df_ss.empty:
         st.info("Ainda nao ha dados da Semantic Scholar. Corre: python -m citeflow.enrich")
     else:
-        st.subheader(f"📋 Citacoes com dados enriquecidos ({len(df_ss)} registos)")
+        st.subheader(f"📋 Citações com dados enriquecidos ({len(df_ss)} registos)")
         df_ss = make_doi_clickable(df_ss)
         colunas_ss = ["citing_title", "ss_venue", "ss_year", "ss_citation_count", "ss_doi", "my_work_title"]
         colunas_ex = [c for c in colunas_ss if c in df_ss.columns]
@@ -313,28 +394,29 @@ elif modo == "🔬 Dados Semantic Scholar":
             "citing_title":      "Artigo citante",
             "ss_venue":          "Venue (SS)",
             "ss_year":           "Ano (SS)",
-            "ss_citation_count": "Citacoes do artigo",
+            "ss_citation_count": "Citações do artigo",
             "ss_doi":            "DOI",
             "my_work_title":     "Meu artigo citado",
-        }).sort_values("Citacoes do artigo", ascending=False, na_position="last")
+        }).sort_values("Citações do artigo", ascending=False, na_position="last")
 
         col_config = {}
         if "DOI" in df_tabela.columns:
             col_config["DOI"] = st.column_config.LinkColumn(
                 "DOI", help="Clica para abrir o artigo", display_text="🔗 Abrir",
             )
-        if "Citacoes do artigo" in df_tabela.columns:
-            col_config["Citacoes do artigo"] = st.column_config.NumberColumn(
-                "Citacoes do artigo",
+        if "Citações do artigo" in df_tabela.columns:
+            col_config["Citações do artigo"] = st.column_config.NumberColumn(
+                "Citações do artigo",
                 help="Numero de vezes que este artigo foi citado (fonte: Semantic Scholar)",
                 format="%d",
             )
 
         st.dataframe(df_tabela, use_container_width=True, column_config=col_config)
-        export_buttons(df_tabela, filename_base="citeflow_semantic_scholar")
+        st.sidebar.markdown("---")
+        export_buttons(df_tabela, filename_base="citeflow_semantic_scholar", container=st.sidebar)
         st.divider()
 
-        st.subheader("📊 Top 20 artigos citantes com mais citacoes (SS)")
+        st.subheader("📊 Top 20 artigos citantes com mais citações (SS)")
         if "ss_citation_count" in df_ss.columns:
             top20 = (
                 df_ss[["citing_title", "ss_citation_count"]]
@@ -346,7 +428,7 @@ elif modo == "🔬 Dados Semantic Scholar":
             if not top20.empty:
                 st.bar_chart(top20)
             else:
-                st.info("Sem dados de citacoes disponiveis.")
+                st.info("Sem dados de citações disponiveis.")
 
         st.divider()
 
@@ -367,18 +449,18 @@ elif modo == "🔬 Dados Semantic Scholar":
                 st.info("Sem dados de venue disponiveis.")
 
     st.divider()
-    st.caption(f"CiteFlow v1.3 · {len(df)} citacoes totais · Gmail API + Semantic Scholar")
+    st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
     st.stop()
 
 
 st.subheader("📊 Resumo")
 col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Citacoes encontradas", len(df_filtered))
-col2.metric("Artigos meus citados", df_filtered["my_work_title"].nunique())
-col3.metric("Artigos que me citam", df_filtered["citing_title"].nunique())
+col1.metric("Citações encontradas", len(df_filtered))
+col2.metric("Artigos citados", df_filtered["my_work_title"].nunique())
+col3.metric("Artigos", df_filtered["citing_title"].nunique())
 enriquecidos_filtro = int(df_filtered["ss_enriched"].sum()) if "ss_enriched" in df_filtered.columns else 0
 col4.metric("Enriquecidos (SS)", enriquecidos_filtro)
-col5.metric("H-Index ≈", hindex_global, help="Calculado sobre todas as citacoes da BD")
+col5.metric("H-Index ≈", hindex_global, help="Calculado sobre todas as citações da BD")
 
 st.divider()
 
@@ -396,10 +478,10 @@ if pesquisa.strip():
     )
     df_filtered = df_filtered[mask]
 
-st.subheader(f"📋 Citacoes ({len(df_filtered)} registos)")
+st.subheader(f"📋 Citações ({len(df_filtered)} registos)")
 
 df_tabela_main = make_doi_clickable(df_filtered)
-colunas_mostrar = ["my_work_title", "citing_title", "citing_authors", "citing_venue", "email_date", "ss_citation_count", "ss_doi"]
+colunas_mostrar = ["my_work_title", "citing_title", "citing_authors", "citing_venue", "ss_doi"]
 colunas_existentes = [c for c in colunas_mostrar if c in df_tabela_main.columns]
 
 col_config_main = {}
@@ -409,26 +491,30 @@ if "ss_doi" in colunas_existentes:
         help="Clica para abrir o artigo",
         display_text="🔗 Abrir",
     )
-if "ss_citation_count" in colunas_existentes:
-    col_config_main["ss_citation_count"] = st.column_config.NumberColumn(
-        "Citacoes (SS)",
-        help="Citacoes do artigo citante na Semantic Scholar",
-        format="%d",
-    )
-
-df_para_tabela = df_tabela_main[colunas_existentes].sort_values("email_date", ascending=False)
+df_para_tabela = (
+    df_tabela_main
+    .sort_values("email_date", ascending=False)
+    [colunas_existentes]
+    .rename(columns={
+        "my_work_title": "Artigo citado",
+        "citing_title": "Artigo",
+        "citing_authors": "Autores",
+        "citing_venue": "Publicação",
+    })
+)
 
 st.dataframe(df_para_tabela, use_container_width=True, column_config=col_config_main)
-export_buttons(df_para_tabela, filename_base="citeflow_citacoes")
+st.sidebar.markdown("---")
+export_buttons(df_para_tabela, filename_base="citeflow_citacoes", container=st.sidebar)
 
 st.divider()
 
-st.subheader("📈 Citacoes por ano")
-por_ano = df_filtered.groupby("year", dropna=True).size().reset_index(name="Citacoes").sort_values("year")
+st.subheader("📈 Citações por ano")
+por_ano = df_filtered.groupby("year", dropna=True).size().reset_index(name="Citações").sort_values("year")
 por_ano["year"] = por_ano["year"].astype(str)
 st.bar_chart(por_ano.set_index("year"))
 
-st.subheader("📈 Citacoes acumuladas ao longo do tempo")
+st.subheader("📈 Citações acumuladas ao longo do tempo")
 acumuladas = (
     df_filtered.groupby("year", dropna=True)
     .size()
@@ -440,4 +526,7 @@ acumuladas["year"] = acumuladas["year"].astype(str)
 st.line_chart(acumuladas.set_index("year")["Acumuladas"])
 
 st.divider()
-st.caption(f"CiteFlow v1.3 · {len(df)} citacoes totais · Gmail API + Semantic Scholar")
+st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
+
+
+
