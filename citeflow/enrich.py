@@ -52,12 +52,17 @@ def run(limit: int | None = None) -> None:
     enriched = 0
     not_found = 0
     errors = 0
+    sent_to_crossref = 0
+    sent_to_semantic = 0
+    pending_ss: list[tuple[int, str]] = []
 
     try:
+        print("  Fase 1/2: Crossref (DOI) para todos os titulos")
         for i, (record_id, citing_title, citing_authors) in enumerate(records, 1):
             title_preview = (citing_title or "")[:60]
-            print(f"  [{i}/{total}] {title_preview}...")
+            print(f"  [CR {i}/{total}] {title_preview}...")
 
+            sent_to_crossref += 1
             doi = find_doi_with_delay(citing_title, citing_authors)
             if doi:
                 cur.execute(
@@ -72,8 +77,18 @@ def run(limit: int | None = None) -> None:
                 enriched += 1
                 print(f"         OK DOI (Crossref): {doi}")
                 conn.commit()
-                continue
+            else:
+                pending_ss.append((record_id, citing_title or ""))
 
+        pct_sem_doi = round(len(pending_ss) / total * 100, 1) if total > 0 else 0
+        print(f"\n  Sem DOI apos Crossref: {len(pending_ss)} ({pct_sem_doi}%)")
+        if pending_ss:
+            print("\n  Fase 2/2: Semantic Scholar (so titulos sem DOI)")
+        for i, (record_id, citing_title) in enumerate(pending_ss, 1):
+            title_preview = (citing_title or "")[:60]
+            print(f"  [SS {i}/{len(pending_ss)}] {title_preview}...")
+
+            sent_to_semantic += 1
             data = enrich_with_delay(citing_title)
 
             if data:
@@ -122,6 +137,8 @@ def run(limit: int | None = None) -> None:
         conn.close()
 
     print("\n=== Concluido ===")
+    print(f"  Enviados para Crossref: {sent_to_crossref}")
+    print(f"  Enviados para Semantic: {sent_to_semantic}")
     print(f"  Enriquecidos com dados: {enriched}")
     print(f"  Nao encontrados:        {not_found}")
     print(f"  Erros de API/rede:      {errors}")
