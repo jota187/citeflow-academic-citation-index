@@ -3,6 +3,7 @@ import os
 import sqlite3
 import tempfile
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import zipfile
 from pathlib import Path
 
@@ -112,15 +113,21 @@ def _download_db_from_github(archive_url: str | None, headers: dict | None) -> b
     return True
 
 
-def _ensure_latest_db() -> float:
+def _format_dt_lisbon(dt: datetime | None) -> str:
+    if not dt:
+        return "desconhecida"
+    return dt.astimezone(ZoneInfo("Europe/Lisbon")).strftime("%d/%m/%Y %H:%M")
+
+
+def _ensure_latest_db() -> tuple[float, str | None]:
     created_at, archive_url, headers = _get_latest_artifact_meta()
     if not DB_PATH.exists():
         _download_db_from_github(archive_url, headers)
     elif _artifact_is_newer(created_at, DB_PATH):
         _download_db_from_github(archive_url, headers)
     if not DB_PATH.exists():
-        return 0.0
-    return DB_PATH.stat().st_mtime
+        return 0.0, created_at
+    return DB_PATH.stat().st_mtime, created_at
 
 
 @st.cache_data(ttl=REFRESH_INTERVAL_S)
@@ -213,8 +220,12 @@ st.set_page_config(page_title="CiteFlow", page_icon="📚", layout="wide")
 st.title("📚 CiteFlow: Academic Citation Index")
 st.caption("Dashboard de citações académicas — Google Scholar + CrossRef + Semantic Scholar")
 
-db_mtime = _ensure_latest_db()
+db_mtime, artifact_created_at = _ensure_latest_db()
 df = load_data(db_mtime)
+
+db_mtime_dt = datetime.fromtimestamp(db_mtime, tz=timezone.utc) if db_mtime else None
+st.caption(f"Data da última aquisição: {_format_dt_lisbon(db_mtime_dt)} (hora de Lisboa)")
+st.caption(f"Artifact mais recente no GitHub Actions: {_format_dt_lisbon(_parse_github_datetime(artifact_created_at))} (hora de Lisboa)")
 
 if df.empty:
     st.warning("Base de dados vazia. Corre primeiro: python -m citeflow.main")
