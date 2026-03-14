@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import time
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -87,6 +88,13 @@ def _download_db_from_github() -> bool:
             DB_PATH.write_bytes(extracted.read_bytes())
 
     return True
+
+
+def _format_last_update(path: Path) -> str:
+    if not path.exists():
+        return "Desconhecida"
+    updated_at = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+    return updated_at.strftime("%d/%m/%Y %H:%M %Z")
 
 
 @st.cache_data
@@ -182,6 +190,7 @@ st.title("📚 CiteFlow: Academic Citation Index")
 st.caption("Dashboard de citações académicas — Google Scholar + CrossRef + Semantic Scholar")
 
 df = load_data()
+st.caption(f"Última atualização: {_format_last_update(DB_PATH)}")
 
 if df.empty:
     st.warning("Base de dados vazia. Corre primeiro: python -m citeflow.main")

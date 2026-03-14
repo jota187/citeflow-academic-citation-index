@@ -11,7 +11,7 @@ import requests
 
 CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 DEFAULT_TIMEOUT_S = 30
-DEFAULT_DELAY_S = 5.0
+DEFAULT_DELAY_S = 1.0
 
 
 def _build_headers() -> dict:
@@ -72,4 +72,3 @@ def find_doi_with_delay(title: str, authors: str | None, delay: float = DEFAULT_
     doi = find_doi_by_title_author(title, authors)
     time.sleep(delay)
     return doi
-
