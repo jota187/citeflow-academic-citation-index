@@ -76,6 +76,10 @@ GOOGLE_TOKEN_PATH=token.json
 
 Podes usar `.env.example` como base.
 
+Variaveis opcionais para ajustar o ritmo de chamadas (em segundos):
+- `SEMANTIC_SCHOLAR_DELAY_S` (default: 1.2)
+- `CROSSREF_DELAY_S` (default: 5.0)
+
 ## GitHub Actions (pipeline agendado)
 
 Este projeto pode correr automaticamente no GitHub Actions. A pipeline:
@@ -88,5 +92,7 @@ Secrets necessarios (Settings -> Secrets and variables -> Actions):
 - `GOOGLE_TOKEN_JSON` (conteudo completo do token.json com refresh_token)
 - `SEMANTIC_SCHOLAR_API_KEY` (opcional, recomendado)
 - `CROSSREF_MAILTO` (opcional, recomendado)
+- `SEMANTIC_SCHOLAR_DELAY_S` (opcional)
+- `CROSSREF_DELAY_S` (opcional)
 
 Nota: o `token.json` deve ser gerado localmente uma vez (OAuth), e depois guardado como secret.

@@ -11,7 +11,17 @@ import requests
 
 CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 DEFAULT_TIMEOUT_S = 30
-DEFAULT_DELAY_S = 5.0
+def _get_env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+DEFAULT_DELAY_S = _get_env_float("CROSSREF_DELAY_S", 5.0)
 _delay_logged = False
 
 

@@ -15,7 +15,17 @@ load_dotenv()
 
 SEMANTIC_SCHOLAR_GRAPH_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 DEFAULT_TIMEOUT_S = 30
-DEFAULT_DELAY_S = 1.2
+def _get_env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+DEFAULT_DELAY_S = _get_env_float("SEMANTIC_SCHOLAR_DELAY_S", 1.2)
 last_rate_limited = False
 
 
