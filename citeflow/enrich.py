@@ -7,14 +7,13 @@ import argparse
 import sys
 
 from .db import get_connection
-from .crossref import find_doi_with_delay
 from .semantic_scholar import enrich_with_delay
 
 
 def run(limit: int | None = None) -> None:
     """
     Percorre os registos da BD que ainda nao foram enriquecidos (ss_enriched = 0)
-    e tenta obter DOI via Crossref (titulo + autores). Se falhar, usa Semantic Scholar.
+    e tenta obter DOI via Semantic Scholar (titulo).
 
     limit: numero maximo de registos a processar (None = todos)
     """
@@ -24,7 +23,7 @@ def run(limit: int | None = None) -> None:
     if limit:
         cur.execute(
             """
-            SELECT id, citing_title, citing_authors FROM citations
+            SELECT id, citing_title FROM citations
             WHERE ss_enriched = 0 AND citing_title IS NOT NULL
             LIMIT ?
             """,
@@ -33,7 +32,7 @@ def run(limit: int | None = None) -> None:
     else:
         cur.execute(
             """
-            SELECT id, citing_title, citing_authors FROM citations
+            SELECT id, citing_title FROM citations
             WHERE ss_enriched = 0 AND citing_title IS NOT NULL
             """
         )
@@ -45,51 +44,23 @@ def run(limit: int | None = None) -> None:
         conn.close()
         return
 
-    print("\n=== Enriquecimento Crossref + Semantic Scholar ===")
+    print("\n=== Enriquecimento Semantic Scholar ===")
     print(f"  Registos por processar: {total}")
     print("  (pausa de 5.0s entre chamadas para respeitar limites da API)\n")
 
     enriched = 0
     not_found = 0
     errors = 0
-    sent_to_crossref = 0
     sent_to_semantic = 0
-    pending_ss: list[tuple[int, str]] = []
 
     try:
-        print("  Fase 1/2: Crossref (DOI) para todos os titulos")
-        for i, (record_id, citing_title, citing_authors) in enumerate(records, 1):
+        print("  Fase unica: Semantic Scholar (DOI + metadados)")
+        for i, (record_id, citing_title) in enumerate(records, 1):
             title_preview = (citing_title or "")[:60]
-            print(f"  [CR {i}/{total}] {title_preview}...")
-
-            sent_to_crossref += 1
-            doi = find_doi_with_delay(citing_title, citing_authors)
-            if doi:
-                cur.execute(
-                    """
-                    UPDATE citations
-                    SET ss_doi      = ?,
-                        ss_enriched = 1
-                    WHERE id = ?
-                    """,
-                    (doi, record_id),
-                )
-                enriched += 1
-                print(f"         OK DOI (Crossref): {doi}")
-                conn.commit()
-            else:
-                pending_ss.append((record_id, citing_title or ""))
-
-        pct_sem_doi = round(len(pending_ss) / total * 100, 1) if total > 0 else 0
-        print(f"\n  Sem DOI apos Crossref: {len(pending_ss)} ({pct_sem_doi}%)")
-        if pending_ss:
-            print("\n  Fase 2/2: Semantic Scholar (so titulos sem DOI)")
-        for i, (record_id, citing_title) in enumerate(pending_ss, 1):
-            title_preview = (citing_title or "")[:60]
-            print(f"  [SS {i}/{len(pending_ss)}] {title_preview}...")
+            print(f"  [SS {i}/{total}] {title_preview}...")
 
             sent_to_semantic += 1
-            data = enrich_with_delay(citing_title)
+            data = enrich_with_delay(citing_title or "")
 
             if data:
                 cur.execute(
@@ -137,7 +108,6 @@ def run(limit: int | None = None) -> None:
         conn.close()
 
     print("\n=== Concluido ===")
-    print(f"  Enviados para Crossref: {sent_to_crossref}")
     print(f"  Enviados para Semantic: {sent_to_semantic}")
     print(f"  Enriquecidos com dados: {enriched}")
     print(f"  Nao encontrados:        {not_found}")
