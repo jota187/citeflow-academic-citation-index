@@ -95,6 +95,8 @@ jobs:
           GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
           SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
           CROSSREF_MAILTO: ${{ secrets.CROSSREF_MAILTO }}
+          SEMANTIC_SCHOLAR_DELAY_S: ${{ vars.SEMANTIC_SCHOLAR_DELAY_S || '1.2' }}
+          CROSSREF_DELAY_S: ${{ vars.CROSSREF_DELAY_S || '5.0' }}
         run: |
           python -m citeflow.main
           python -m citeflow.enrich
