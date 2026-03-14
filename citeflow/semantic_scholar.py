@@ -26,6 +26,8 @@ def _get_env_float(name: str) -> float:
 
 
 DEFAULT_DELAY_S = _get_env_float("SEMANTIC_SCHOLAR_DELAY_S")
+DEFAULT_429_RETRIES = int(os.getenv("SEMANTIC_SCHOLAR_429_RETRIES", "3"))
+DEFAULT_429_BACKOFF_S = float(os.getenv("SEMANTIC_SCHOLAR_429_BACKOFF_S", "2.0"))
 last_rate_limited = False
 
 
@@ -57,15 +59,35 @@ def enrich_by_title(title: str) -> Optional[dict]:
 
     global last_rate_limited
     last_rate_limited = False
-    try:
-        resp = requests.get(
-            SEMANTIC_SCHOLAR_GRAPH_SEARCH_URL,
-            params=params,
-            timeout=DEFAULT_TIMEOUT_S,
-            headers=_build_headers(),
-        )
-    except Exception as e:
-        print(f"    [AVISO] Semantic Scholar: network error: {e}")
+    resp = None
+    for attempt in range(DEFAULT_429_RETRIES + 1):
+        try:
+            resp = requests.get(
+                SEMANTIC_SCHOLAR_GRAPH_SEARCH_URL,
+                params=params,
+                timeout=DEFAULT_TIMEOUT_S,
+                headers=_build_headers(),
+            )
+        except Exception as e:
+            print(f"    [AVISO] Semantic Scholar: network error: {e}")
+            return None
+
+        if resp.status_code != 429:
+            break
+
+        last_rate_limited = True
+        retry_after = resp.headers.get("Retry-After", "").strip()
+        if retry_after:
+            try:
+                backoff_s = float(retry_after)
+            except ValueError:
+                backoff_s = DEFAULT_429_BACKOFF_S * (2 ** attempt)
+        else:
+            backoff_s = DEFAULT_429_BACKOFF_S * (2 ** attempt)
+        print(f"    [AVISO] Semantic Scholar: HTTP 429 (retry em {backoff_s:.1f}s)")
+        time.sleep(backoff_s)
+
+    if resp is None:
         return None
 
     if resp.status_code != 200:

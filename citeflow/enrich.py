@@ -50,7 +50,7 @@ def run(limit: int | None = None) -> None:
 
     print("\n=== Enriquecimento Semantic Scholar ===")
     print(f"  Registos por processar: {total}")
-    print(f"  (pausa de {DEFAULT_DELAY_S:.1f}s entre chamadas para respeitar limites da API)\n")
+    print(f"  (pausa de {DEFAULT_DELAY_S:.1f}s entre chamadas para respeitar limites da API - SS)\n")
 
     enriched = 0
     enriched_with_doi = 0
@@ -134,15 +134,31 @@ def run(limit: int | None = None) -> None:
                     not_found += 1
                     print("         - Nao encontrado")
             else:
-                # Erro de API/rede: nao marcar como tentado, para permitir retry.
-                errors += 1
-                print("         ! Erro na chamada a Semantic Scholar (vai tentar novamente mais tarde)")
-                # Se for rate limit, parar cedo para nao gastar chamadas.
-                from .semantic_scholar import last_rate_limited
-                if last_rate_limited:
-                    print("         ! Define SEMANTIC_SCHOLAR_API_KEY para limites mais altos.")
-                    print("         ! Rate limit atingido; a parar o processamento restante.")
-                    break
+                # Erro de API/rede no Semantic Scholar: tentar Crossref e seguir.
+                doi_cr = find_doi_with_delay(citing_title or "", citing_authors)
+                if doi_cr:
+                    enriched_with_cr += 1
+                    enriched_with_doi += 1
+                    enriched += 1
+                    cur.execute(
+                        """
+                        UPDATE citations
+                        SET ss_doi            = ?,
+                            ss_enriched       = 1,
+                            ss_enriched_at    = ?,
+                            ss_enriched_run_id = ?
+                        WHERE id = ?
+                        """,
+                        (doi_cr, run_id, run_id, record_id),
+                    )
+                    print(f"         OK DOI (Crossref): {doi_cr}")
+                else:
+                    errors += 1
+                    print("         ! Erro na chamada a Semantic Scholar (vai tentar novamente mais tarde)")
+                    from .semantic_scholar import last_rate_limited
+                    if last_rate_limited:
+                        print("         ! Define SEMANTIC_SCHOLAR_API_KEY para limites mais altos.")
+                        print("         ! Rate limit atingido; a continuar com outras citacoes.")
 
             conn.commit()
     finally:
