@@ -7,7 +7,7 @@ import argparse
 import sys
 
 from .db import get_connection
-from .semantic_scholar import enrich_with_delay
+from .semantic_scholar import DEFAULT_DELAY_S, enrich_with_delay
 
 
 def run(limit: int | None = None) -> None:
@@ -46,7 +46,7 @@ def run(limit: int | None = None) -> None:
 
     print("\n=== Enriquecimento Semantic Scholar ===")
     print(f"  Registos por processar: {total}")
-    print("  (pausa de 5.0s entre chamadas para respeitar limites da API)\n")
+    print(f"  (pausa de {DEFAULT_DELAY_S:.1f}s entre chamadas para respeitar limites da API)\n")
 
     enriched = 0
     not_found = 0
