@@ -15,7 +15,7 @@ load_dotenv()
 
 SEMANTIC_SCHOLAR_GRAPH_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 DEFAULT_TIMEOUT_S = 30
-DEFAULT_DELAY_S = 1.0
+DEFAULT_DELAY_S = 1.2
 last_rate_limited = False
 
 
