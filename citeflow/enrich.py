@@ -48,7 +48,7 @@ def run(limit: int | None = None) -> None:
         conn.close()
         return
 
-    print("\n=== Enriquecimento Semantic Scholar ===")
+    print("\n========= Enriquecimento ============")
     print(f"  Registos por processar: {total}")
     print(f"  (pausa de {DEFAULT_DELAY_S:.1f}s entre chamadas para respeitar limites da API - SS)\n")
 
@@ -61,8 +61,8 @@ def run(limit: int | None = None) -> None:
     ss_completed = 0
 
     try:
-        print("  Fase unica: Semantic Scholar (DOI + metadados)")
-        print(f"  (pausa de {CROSSREF_DELAY_S:.1f}s entre chamadas para respeitar limites da API Crossref)\n")
+        # print("  Fase unica: Semantic Scholar (DOI + metadados)")
+        print(f"  (pausa de {CROSSREF_DELAY_S:.1f}s entre chamadas para respeitar limites da API - CrosssRef)\n")
         for i, (record_id, citing_title, citing_authors) in enumerate(records, 1):
             title_preview = (citing_title or "")[:60]
             print(f"  [SS {i}/{total}] {title_preview}...")
@@ -73,12 +73,14 @@ def run(limit: int | None = None) -> None:
             if data:
                 ss_completed += 1
                 has_doi = bool(data.get("ss_doi"))
+                doi_source = "ss" if has_doi else None
                 if not has_doi:
                     doi_cr = find_doi_with_delay(citing_title or "", citing_authors)
                     if doi_cr:
                         data["ss_doi"] = doi_cr
                         has_doi = True
                         enriched_with_cr += 1
+                        doi_source = "cr"
                 cur.execute(
                     """
                     UPDATE citations
@@ -89,7 +91,8 @@ def run(limit: int | None = None) -> None:
                         ss_url            = ?,
                         ss_enriched       = 1,
                         ss_enriched_at    = ?,
-                        ss_enriched_run_id = ?
+                        ss_enriched_run_id = ?,
+                        ss_doi_source     = ?
                     WHERE id = ?
                     """,
                     (
@@ -100,6 +103,7 @@ def run(limit: int | None = None) -> None:
                         data.get("ss_url"),
                         run_id,
                         run_id,
+                        doi_source,
                         record_id,
                     ),
                 )
@@ -122,15 +126,19 @@ def run(limit: int | None = None) -> None:
                         SET ss_doi            = ?,
                             ss_enriched       = 1,
                             ss_enriched_at    = ?,
-                            ss_enriched_run_id = ?
+                            ss_enriched_run_id = ?,
+                            ss_doi_source     = ?
                         WHERE id = ?
                         """,
-                        (doi_cr, run_id, run_id, record_id),
+                        (doi_cr, run_id, run_id, "cr", record_id),
                     )
                     print(f"         OK DOI (Crossref): {doi_cr}")
                 else:
                     # Consulta OK, mas nao encontrou resultados.
-                    cur.execute("UPDATE citations SET ss_enriched = 1 WHERE id = ?", (record_id,))
+                    cur.execute(
+                        "UPDATE citations SET ss_enriched = 1, ss_enriched_at = ?, ss_enriched_run_id = ? WHERE id = ?",
+                        (run_id, run_id, record_id),
+                    )
                     not_found += 1
                     print("         - Nao encontrado")
             else:
@@ -146,10 +154,11 @@ def run(limit: int | None = None) -> None:
                         SET ss_doi            = ?,
                             ss_enriched       = 1,
                             ss_enriched_at    = ?,
-                            ss_enriched_run_id = ?
+                            ss_enriched_run_id = ?,
+                            ss_doi_source     = ?
                         WHERE id = ?
                         """,
-                        (doi_cr, run_id, run_id, record_id),
+                        (doi_cr, run_id, run_id, "cr", record_id),
                     )
                     print(f"         OK DOI (Crossref): {doi_cr}")
                 else:

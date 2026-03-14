@@ -82,7 +82,7 @@ def find_doi_by_title_author(title: str, authors: str | None) -> Optional[str]:
 def find_doi_with_delay(title: str, authors: str | None, delay: float = DEFAULT_DELAY_S) -> Optional[str]:
     global _delay_logged
     if delay > 0 and not _delay_logged:
-        print(f"  (pausa de {DEFAULT_DELAY_S:.1f}s entre chamadas para respeitar limites da API - CrossRef)\n")
+        # print(f"  (pausa de {DEFAULT_DELAY_S:.1f}s entre chamadas para respeitar limites da API)\n")
         _delay_logged = True
     doi = find_doi_by_title_author(title, authors)
     time.sleep(delay)

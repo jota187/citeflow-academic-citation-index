@@ -174,17 +174,40 @@ def _semantic_mask(df_in: pd.DataFrame) -> pd.Series:
     return mask
 
 
-def _latest_ss_run_count(df_in: pd.DataFrame) -> int:
+def _latest_ss_run_counts(df_in: pd.DataFrame) -> tuple[int, int, int]:
+    if "ss_doi" not in df_in.columns:
+        return 0, 0, 0
     if "ss_enriched_run_id" not in df_in.columns:
-        if "ss_doi" not in df_in.columns:
-            return 0
-        return int(_non_empty_str_series(df_in["ss_doi"]).sum())
+        total = int(_non_empty_str_series(df_in["ss_doi"]).sum())
+        return 0, total, total
+
     run_id = df_in["ss_enriched_run_id"].dropna().max()
     if not run_id:
-        return 0
-    if "ss_doi" not in df_in.columns:
-        return 0
-    return int(((df_in["ss_enriched_run_id"] == run_id) & _non_empty_str_series(df_in["ss_doi"])).sum())
+        return 0, 0, 0
+
+    in_run = df_in["ss_enriched_run_id"] == run_id
+    has_doi = _non_empty_str_series(df_in["ss_doi"])
+    source_col = df_in["ss_doi_source"].fillna("") if "ss_doi_source" in df_in.columns else pd.Series("", index=df_in.index)
+    is_cr = source_col.str.lower().eq("cr")
+    is_ss = source_col.str.lower().eq("ss")
+
+    # Fallback: infer source when missing
+    has_ss_meta = pd.Series([False] * len(df_in), index=df_in.index)
+    if "ss_url" in df_in.columns:
+        has_ss_meta |= _non_empty_str_series(df_in["ss_url"])
+    if "ss_venue" in df_in.columns:
+        has_ss_meta |= _non_empty_str_series(df_in["ss_venue"])
+    if "ss_year" in df_in.columns:
+        has_ss_meta |= df_in["ss_year"].notna()
+    if "ss_citation_count" in df_in.columns:
+        has_ss_meta |= df_in["ss_citation_count"].notna()
+
+    inferred_ss = has_doi & has_ss_meta & ~is_cr & ~is_ss
+    inferred_cr = has_doi & ~has_ss_meta & ~is_cr & ~is_ss
+
+    cr_count = int((in_run & has_doi & (is_cr | inferred_cr)).sum())
+    ss_count = int((in_run & has_doi & (is_ss | inferred_ss)).sum())
+    return cr_count, ss_count, cr_count + ss_count
 
 
 def export_buttons(df_export: pd.DataFrame, filename_base: str, container=st):
@@ -512,13 +535,14 @@ elif modo == "🔬 Dados Semantic Scholar":
 
 
 st.subheader("📊 Resumo")
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 col1.metric("Citações encontradas", len(df_filtered))
 col2.metric("Artigos citados", df_filtered["my_work_title"].nunique())
 col3.metric("Artigos", df_filtered["citing_title"].nunique())
-enriquecidos_filtro = _latest_ss_run_count(df_filtered)
-col4.metric("Enriquecidos (SS) DOI", enriquecidos_filtro)
-col5.metric("H-Index ≈", hindex_global, help="Calculado sobre todas as citações da BD")
+enriq_cr, enriq_ss, enriq_total = _latest_ss_run_counts(df_filtered)
+col4.metric("Enriquecidos (CR) DOI", enriq_cr)
+col5.metric("Enriquecidos (SS) DOI", enriq_ss)
+col6.metric("Total enriquecidos", enriq_total)
 
 st.divider()
 

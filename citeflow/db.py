@@ -50,6 +50,7 @@ def init_db():
         "ss_enriched":       "INTEGER DEFAULT 0",
         "ss_enriched_at":    "TEXT",
         "ss_enriched_run_id": "TEXT",
+        "ss_doi_source":     "TEXT",
     }
     for col, col_type in new_columns.items():
         if col not in existing:
