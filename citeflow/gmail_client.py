@@ -98,7 +98,11 @@ def get_gmail_service():
                 flow = InstalledAppFlow.from_client_secrets_file(
                     str(CREDENTIALS_PATH), SCOPES
                 )
-            creds = flow.run_local_server(port=0)
+            creds = flow.run_local_server(
+                port=0,
+                access_type="offline",
+                prompt="consent",
+            )
             reauthed = True
 
         # Guarda o token para reutilizar depois
