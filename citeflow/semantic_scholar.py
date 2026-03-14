@@ -8,10 +8,14 @@ import time
 from typing import Optional
 
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env if present.
+load_dotenv()
 
 SEMANTIC_SCHOLAR_GRAPH_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 DEFAULT_TIMEOUT_S = 30
-DEFAULT_DELAY_S = 5.0
+DEFAULT_DELAY_S = 1.0
 last_rate_limited = False
 
 
