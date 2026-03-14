@@ -96,8 +96,8 @@ def run(limit: int | None = None) -> None:
                         record_id,
                     ),
                 )
-                enriched += 1
                 if data.get("ss_doi"):
+                    enriched += 1
                     print(
                         f"         OK DOI ({doi_source}): {data.get('ss_doi')} | Citacoes SS: {data.get('ss_citation_count')}"
                     )
