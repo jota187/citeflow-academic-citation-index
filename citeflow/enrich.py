@@ -107,12 +107,17 @@ def run(limit: int | None = None) -> None:
     finally:
         conn.close()
 
+    total_enriched = enriched
+    total_not_enriched = not_found + errors
+
     print("\n=== Concluido ===")
-    print(f"  Enviados para Semantic: {sent_to_semantic}")
-    print(f"  Enriquecidos com dados: {enriched}")
+    print(f"  Enriquecidos com SS:    {enriched}")
+    print(f"  Enriquecidos com CR:    0")
+    print(f"  Total de enriquecidos:  {total_enriched}")
+    print(f"  Total de nao enriquecidos: {total_not_enriched}")
     print(f"  Nao encontrados:        {not_found}")
     print(f"  Erros de API/rede:      {errors}")
-    print(f"  Total processados:      {total}")
+    print(f"  Total processados DOI API: {sent_to_semantic}")
 
 
 if __name__ == "__main__":
