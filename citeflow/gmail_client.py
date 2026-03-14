@@ -4,11 +4,13 @@ import json
 import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import sys
 
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
 
 # Escopo: so leitura do Gmail
@@ -19,6 +21,23 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 CREDENTIALS_PATH = Path(os.getenv("GOOGLE_CREDENTIALS_PATH", PROJECT_ROOT / "credentials.json"))
 TOKEN_PATH = Path(os.getenv("GOOGLE_TOKEN_PATH", PROJECT_ROOT / "token.json"))
+
+
+def _update_env_var(path: Path, key: str, value: str) -> None:
+    if not path.exists():
+        return
+    lines = path.read_text(encoding="utf-8").splitlines()
+    updated = False
+    out_lines = []
+    for line in lines:
+        if line.startswith(f"{key}="):
+            out_lines.append(f"{key}={value}")
+            updated = True
+        else:
+            out_lines.append(line)
+    if not updated:
+        out_lines.append(f"{key}={value}")
+    path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
 
 
 def _load_json_env(var_name: str) -> Optional[dict]:
@@ -62,9 +81,15 @@ def get_gmail_service():
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             # Renova automaticamente
-            creds.refresh(Request())
-        else:
-            # Fluxo de autorizacao no browser
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                creds = None
+        reauthed = False
+        if not creds or not creds.valid:
+            # Fluxo de autorizacao no browser (apenas em modo interativo)
+            if not sys.stdin.isatty():
+                raise RuntimeError("Token expirou/revogado e nao e possivel reautorizar sem browser.")
             creds_info = _load_json_env("GOOGLE_CREDENTIALS_JSON")
             if creds_info:
                 _write_json_if_missing(CREDENTIALS_PATH, creds_info)
@@ -74,10 +99,15 @@ def get_gmail_service():
                     str(CREDENTIALS_PATH), SCOPES
                 )
             creds = flow.run_local_server(port=0)
+            reauthed = True
 
         # Guarda o token para reutilizar depois
         TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-        TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
+        token_json = creds.to_json()
+        TOKEN_PATH.write_text(token_json, encoding="utf-8")
+        _update_env_var(PROJECT_ROOT / ".env", "GOOGLE_TOKEN_JSON", token_json)
+        if reauthed:
+            print("NOVO TOKEN GERADO E GUARDADO EM token.json")
 
     # 3) Constroi o cliente da Gmail API
     service = build("gmail", "v1", credentials=creds)

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from .db import get_connection, init_db
 from .semantic_scholar import DEFAULT_DELAY_S, enrich_with_delay
+from .crossref import DEFAULT_DELAY_S as CROSSREF_DELAY_S, find_doi_with_delay
 
 
 def run(limit: int | None = None) -> None:
@@ -26,7 +27,7 @@ def run(limit: int | None = None) -> None:
     if limit:
         cur.execute(
             """
-            SELECT id, citing_title FROM citations
+            SELECT id, citing_title, citing_authors FROM citations
             WHERE ss_enriched = 0 AND citing_title IS NOT NULL
             LIMIT ?
             """,
@@ -35,7 +36,7 @@ def run(limit: int | None = None) -> None:
     else:
         cur.execute(
             """
-            SELECT id, citing_title FROM citations
+            SELECT id, citing_title, citing_authors FROM citations
             WHERE ss_enriched = 0 AND citing_title IS NOT NULL
             """
         )
@@ -53,6 +54,7 @@ def run(limit: int | None = None) -> None:
 
     enriched = 0
     enriched_with_doi = 0
+    enriched_with_cr = 0
     not_found = 0
     errors = 0
     ss_attempted = 0
@@ -60,7 +62,8 @@ def run(limit: int | None = None) -> None:
 
     try:
         print("  Fase unica: Semantic Scholar (DOI + metadados)")
-        for i, (record_id, citing_title) in enumerate(records, 1):
+        print(f"  (pausa de {CROSSREF_DELAY_S:.1f}s entre chamadas para respeitar limites da API Crossref)\n")
+        for i, (record_id, citing_title, citing_authors) in enumerate(records, 1):
             title_preview = (citing_title or "")[:60]
             print(f"  [SS {i}/{total}] {title_preview}...")
 
@@ -70,6 +73,12 @@ def run(limit: int | None = None) -> None:
             if data:
                 ss_completed += 1
                 has_doi = bool(data.get("ss_doi"))
+                if not has_doi:
+                    doi_cr = find_doi_with_delay(citing_title or "", citing_authors)
+                    if doi_cr:
+                        data["ss_doi"] = doi_cr
+                        has_doi = True
+                        enriched_with_cr += 1
                 cur.execute(
                     """
                     UPDATE citations
@@ -102,10 +111,28 @@ def run(limit: int | None = None) -> None:
                 )
             elif data == {}:
                 ss_completed += 1
-                # Consulta OK, mas nao encontrou resultados.
-                cur.execute("UPDATE citations SET ss_enriched = 1 WHERE id = ?", (record_id,))
-                not_found += 1
-                print("         - Nao encontrado")
+                doi_cr = find_doi_with_delay(citing_title or "", citing_authors)
+                if doi_cr:
+                    enriched_with_cr += 1
+                    enriched_with_doi += 1
+                    enriched += 1
+                    cur.execute(
+                        """
+                        UPDATE citations
+                        SET ss_doi            = ?,
+                            ss_enriched       = 1,
+                            ss_enriched_at    = ?,
+                            ss_enriched_run_id = ?
+                        WHERE id = ?
+                        """,
+                        (doi_cr, run_id, run_id, record_id),
+                    )
+                    print(f"         OK DOI (Crossref): {doi_cr}")
+                else:
+                    # Consulta OK, mas nao encontrou resultados.
+                    cur.execute("UPDATE citations SET ss_enriched = 1 WHERE id = ?", (record_id,))
+                    not_found += 1
+                    print("         - Nao encontrado")
             else:
                 # Erro de API/rede: nao marcar como tentado, para permitir retry.
                 errors += 1
@@ -125,8 +152,8 @@ def run(limit: int | None = None) -> None:
     total_not_enriched = not_found + errors
 
     print("\n=== Concluido ===")
-    print(f"  Enriquecidos com SS:    {enriched_with_doi}")
-    print(f"  Enriquecidos com CR:    0")
+    print(f"  Enriquecidos com SS:    {enriched_with_doi - enriched_with_cr}")
+    print(f"  Enriquecidos com CR:    {enriched_with_cr}")
     print(f"  Total de enriquecidos:  {total_enriched}")
     print(f"  Total de nao enriquecidos: {total_not_enriched}")
     print(f"  Nao encontrados:        {not_found}")
