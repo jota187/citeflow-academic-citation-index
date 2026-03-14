@@ -238,8 +238,8 @@ db_mtime, artifact_created_at, downloaded = _ensure_latest_db()
 df = load_data(db_mtime)
 
 db_mtime_dt = datetime.fromtimestamp(db_mtime, tz=timezone.utc) if db_mtime else None
-st.caption(f"Base de Dados: {_format_dt_lisbon(_parse_github_datetime(artifact_created_at))}")
-st.caption(f"Copia local: atualizada em {_format_dt_lisbon(db_mtime_dt)}")
+base_dt = _parse_github_datetime(artifact_created_at) or db_mtime_dt
+st.caption(f"Base de Dados: {_format_dt_lisbon(base_dt)}")
 
 if df.empty:
     st.warning("Base de dados vazia. Corre primeiro: python -m citeflow.main")
