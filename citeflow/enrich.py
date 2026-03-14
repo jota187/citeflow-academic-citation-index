@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, timezone
 
-from .db import get_connection
+from .db import get_connection, init_db
 from .semantic_scholar import DEFAULT_DELAY_S, enrich_with_delay
 
 
@@ -17,8 +18,10 @@ def run(limit: int | None = None) -> None:
 
     limit: numero maximo de registos a processar (None = todos)
     """
+    init_db()
     conn = get_connection()
     cur = conn.cursor()
+    run_id = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     if limit:
         cur.execute(
@@ -49,9 +52,11 @@ def run(limit: int | None = None) -> None:
     print(f"  (pausa de {DEFAULT_DELAY_S:.1f}s entre chamadas para respeitar limites da API)\n")
 
     enriched = 0
+    enriched_with_doi = 0
     not_found = 0
     errors = 0
-    sent_to_semantic = 0
+    ss_attempted = 0
+    ss_completed = 0
 
     try:
         print("  Fase unica: Semantic Scholar (DOI + metadados)")
@@ -59,10 +64,12 @@ def run(limit: int | None = None) -> None:
             title_preview = (citing_title or "")[:60]
             print(f"  [SS {i}/{total}] {title_preview}...")
 
-            sent_to_semantic += 1
+            ss_attempted += 1
             data = enrich_with_delay(citing_title or "")
 
             if data:
+                ss_completed += 1
+                has_doi = bool(data.get("ss_doi"))
                 cur.execute(
                     """
                     UPDATE citations
@@ -71,7 +78,9 @@ def run(limit: int | None = None) -> None:
                         ss_venue          = ?,
                         ss_citation_count = ?,
                         ss_url            = ?,
-                        ss_enriched       = 1
+                        ss_enriched       = 1,
+                        ss_enriched_at    = ?,
+                        ss_enriched_run_id = ?
                     WHERE id = ?
                     """,
                     (
@@ -80,14 +89,19 @@ def run(limit: int | None = None) -> None:
                         data.get("ss_venue"),
                         data.get("ss_citation_count"),
                         data.get("ss_url"),
+                        run_id,
+                        run_id,
                         record_id,
                     ),
                 )
                 enriched += 1
+                if has_doi:
+                    enriched_with_doi += 1
                 print(
                     f"         OK DOI: {data.get('ss_doi')} | Citacoes: {data.get('ss_citation_count')}"
                 )
             elif data == {}:
+                ss_completed += 1
                 # Consulta OK, mas nao encontrou resultados.
                 cur.execute("UPDATE citations SET ss_enriched = 1 WHERE id = ?", (record_id,))
                 not_found += 1
@@ -107,17 +121,17 @@ def run(limit: int | None = None) -> None:
     finally:
         conn.close()
 
-    total_enriched = enriched
+    total_enriched = enriched_with_doi
     total_not_enriched = not_found + errors
 
     print("\n=== Concluido ===")
-    print(f"  Enriquecidos com SS:    {enriched}")
+    print(f"  Enriquecidos com SS:    {enriched_with_doi}")
     print(f"  Enriquecidos com CR:    0")
     print(f"  Total de enriquecidos:  {total_enriched}")
     print(f"  Total de nao enriquecidos: {total_not_enriched}")
     print(f"  Nao encontrados:        {not_found}")
     print(f"  Erros de API/rede:      {errors}")
-    print(f"  Total processados DOI API: {sent_to_semantic}")
+    print(f"  Total processados DOI API: {ss_completed}")
 
 
 if __name__ == "__main__":

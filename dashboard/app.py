@@ -174,6 +174,19 @@ def _semantic_mask(df_in: pd.DataFrame) -> pd.Series:
     return mask
 
 
+def _latest_ss_run_count(df_in: pd.DataFrame) -> int:
+    if "ss_enriched_run_id" not in df_in.columns:
+        if "ss_doi" not in df_in.columns:
+            return 0
+        return int(_non_empty_str_series(df_in["ss_doi"]).sum())
+    run_id = df_in["ss_enriched_run_id"].dropna().max()
+    if not run_id:
+        return 0
+    if "ss_doi" not in df_in.columns:
+        return 0
+    return int(((df_in["ss_enriched_run_id"] == run_id) & _non_empty_str_series(df_in["ss_doi"])).sum())
+
+
 def export_buttons(df_export: pd.DataFrame, filename_base: str, container=st):
     col_csv, col_xlsx = container.columns(2)
     csv_data = df_export.to_csv(index=False).encode("utf-8")
@@ -225,15 +238,8 @@ db_mtime, artifact_created_at, downloaded = _ensure_latest_db()
 df = load_data(db_mtime)
 
 db_mtime_dt = datetime.fromtimestamp(db_mtime, tz=timezone.utc) if db_mtime else None
-if downloaded:
-    st.caption(
-        f"Artifact mais recente no GitHub Actions: "
-        f"{_format_dt_lisbon(_parse_github_datetime(artifact_created_at))} (hora de Lisboa)"
-    )
-    st.caption("Base de dados local: nao utilizada")
-else:
-    st.caption("Artifact mais recente no GitHub Actions: nao utilizado")
-    st.caption(f"Base de dados local: {_format_dt_lisbon(db_mtime_dt)} (hora de Lisboa)")
+st.caption(f"Base de Dados: {_format_dt_lisbon(_parse_github_datetime(artifact_created_at))}")
+st.caption(f"Copia local: atualizada em {_format_dt_lisbon(db_mtime_dt)}")
 
 if df.empty:
     st.warning("Base de dados vazia. Corre primeiro: python -m citeflow.main")
@@ -510,8 +516,8 @@ col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Citações encontradas", len(df_filtered))
 col2.metric("Artigos citados", df_filtered["my_work_title"].nunique())
 col3.metric("Artigos", df_filtered["citing_title"].nunique())
-enriquecidos_filtro = int(df_filtered["ss_enriched"].sum()) if "ss_enriched" in df_filtered.columns else 0
-col4.metric("Enriquecidos (SS)", enriquecidos_filtro)
+enriquecidos_filtro = _latest_ss_run_count(df_filtered)
+col4.metric("Enriquecidos (SS) DOI", enriquecidos_filtro)
 col5.metric("H-Index ≈", hindex_global, help="Calculado sobre todas as citações da BD")
 
 st.divider()
