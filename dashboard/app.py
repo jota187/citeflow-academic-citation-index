@@ -2,7 +2,7 @@
 import os
 import sqlite3
 import tempfile
-import time
+from datetime import datetime, timezone
 import zipfile
 from pathlib import Path
 
@@ -25,43 +25,66 @@ def _get_secret(key: str) -> str:
         return ""
 
 
-def _is_db_stale(path: Path, max_age_s: int) -> bool:
-    if not path.exists():
-        return True
-    age_s = time.time() - path.stat().st_mtime
-    return age_s > max_age_s
-
-
-def _download_db_from_github() -> bool:
-    repo = _get_secret("GITHUB_REPO")
-    token = _get_secret("GITHUB_TOKEN")
-    artifact_name = _get_secret("GITHUB_ARTIFACT_NAME") or "citeflow-db"
-
-    if not repo or not token:
-        return False
-
-    headers = {
+def _get_github_headers(token: str) -> dict:
+    return {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
         "User-Agent": "citeflow-streamlit/1.0",
     }
 
+
+def _parse_github_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        # GitHub uses ISO 8601 like "2024-01-01T12:34:56Z"
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _get_latest_artifact_meta() -> tuple[str | None, str | None, dict | None]:
+    repo = _get_secret("GITHUB_REPO")
+    token = _get_secret("GITHUB_TOKEN")
+    artifact_name = _get_secret("GITHUB_ARTIFACT_NAME") or "citeflow-db"
+
+    if not repo or not token:
+        return None, None, None
+
+    headers = _get_github_headers(token)
     url = f"https://api.github.com/repos/{repo}/actions/artifacts?per_page=100"
     resp = requests.get(url, headers=headers, timeout=30)
     if resp.status_code != 200:
         st.warning("Nao foi possivel listar artifacts no GitHub.")
-        return False
+        return None, None, None
 
     data = resp.json()
     artifacts = data.get("artifacts", []) or []
     candidates = [a for a in artifacts if a.get("name") == artifact_name and not a.get("expired")]
     if not candidates:
         st.warning("Nao foi encontrado artifact da BD.")
-        return False
+        return None, None, None
 
     candidates.sort(key=lambda a: a.get("created_at", ""), reverse=True)
+    created_at = candidates[0].get("created_at")
     archive_url = candidates[0].get("archive_download_url")
-    if not archive_url:
+    return created_at, archive_url, headers
+
+
+def _artifact_is_newer(created_at: str | None, path: Path) -> bool:
+    if not created_at:
+        return False
+    remote_dt = _parse_github_datetime(created_at)
+    if not remote_dt:
+        return False
+    if not path.exists():
+        return True
+    local_dt = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    return remote_dt > local_dt
+
+
+def _download_db_from_github(archive_url: str | None, headers: dict | None) -> bool:
+    if not archive_url or not headers:
         return False
 
     resp = requests.get(archive_url, headers=headers, timeout=60)
@@ -89,10 +112,19 @@ def _download_db_from_github() -> bool:
     return True
 
 
-@st.cache_data
-def load_data():
-    if _is_db_stale(DB_PATH, REFRESH_INTERVAL_S):
-        _download_db_from_github()
+def _ensure_latest_db() -> float:
+    created_at, archive_url, headers = _get_latest_artifact_meta()
+    if not DB_PATH.exists():
+        _download_db_from_github(archive_url, headers)
+    elif _artifact_is_newer(created_at, DB_PATH):
+        _download_db_from_github(archive_url, headers)
+    if not DB_PATH.exists():
+        return 0.0
+    return DB_PATH.stat().st_mtime
+
+
+@st.cache_data(ttl=REFRESH_INTERVAL_S)
+def load_data(db_mtime: float):
     if not DB_PATH.exists():
         st.error("Base de dados nao encontrada. Verifica se o artifact existe e se os secrets do GitHub estao configurados.")
         return pd.DataFrame()
@@ -181,7 +213,8 @@ st.set_page_config(page_title="CiteFlow", page_icon="📚", layout="wide")
 st.title("📚 CiteFlow: Academic Citation Index")
 st.caption("Dashboard de citações académicas — Google Scholar + CrossRef + Semantic Scholar")
 
-df = load_data()
+db_mtime = _ensure_latest_db()
+df = load_data(db_mtime)
 
 if df.empty:
     st.warning("Base de dados vazia. Corre primeiro: python -m citeflow.main")
@@ -527,6 +560,3 @@ st.line_chart(acumuladas.set_index("year")["Acumuladas"])
 
 st.divider()
 st.caption(f"CiteFlow v1.3 · {len(df)} citações totais · Gmail API + Semantic Scholar")
-
-
-
